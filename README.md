@@ -102,7 +102,3 @@ The system includes comprehensive error handling for:
 - Scraping failures
 - API errors
 - Data processing errors
-
-## Contributing
-
-Feel free to submit issues and enhancement requests! 
