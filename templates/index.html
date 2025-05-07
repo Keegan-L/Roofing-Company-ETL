@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roofing Contractors Directory</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .refresh-button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .refresh-button:hover {
+            background-color: #45a049;
+        }
+
+        .refresh-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .refresh-button .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .refresh-button.refreshing .spinner {
+            display: inline-block;
+        }
+
+        .refresh-button.refreshing span {
+            display: none;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        .contractors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .contractor-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+            position: relative;
+        }
+
+        .contractor-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .contractor-card .last-updated {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 0.8em;
+            color: #999;
+        }
+
+        .contractor-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .contractor-rating {
+            color: #f39c12;
+            margin-bottom: 5px;
+        }
+
+        .contractor-location {
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .contractor-phone {
+            color: #3498db;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 800px;
+            border-radius: 8px;
+            position: relative;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close-button {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .close-button:hover {
+            color: #000;
+        }
+
+        .modal-section {
+            margin-bottom: 20px;
+        }
+
+        .modal-section h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .review {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .modal-section .last-updated {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Roofing Contractors Directory</h1>
+                <div id="lastUpdated" class="last-updated"></div>
+            </div>
+            <button id="refreshButton" class="refresh-button">
+                <div class="spinner"></div>
+                <span>Refresh Data</span>
+            </button>
+        </div>
+        <div class="contractors-grid" id="contractorsGrid">
+            <!-- Contractor cards will be inserted here -->
+        </div>
+    </div>
+
+    <div class="modal" id="contractorModal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <div id="modalContent">
+                <!-- Modal content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let contractors = [];
+        const refreshButton = document.getElementById('refreshButton');
+        const modal = document.getElementById('contractorModal');
+        const closeButton = document.querySelector('.close-button');
+
+        // Function to show loading state
+        function setLoading(isLoading) {
+            refreshButton.disabled = isLoading;
+            refreshButton.classList.toggle('refreshing', isLoading);
+        }
+
+        // Function to refresh data
+        async function refreshData() {
+            try {
+                setLoading(true);
+                
+                // Add to queue
+                const queueResponse = await fetch('/api/queue/join', {
+                    method: 'POST'
+                });
+                const queueData = await queueResponse.json();
+                
+                if (queueData.position > 0) {
+                    window.location.href = '/waiting';
+                    return;
+                }
+                
+                // Start refresh
+                await fetch('/api/refresh', {
+                    method: 'POST'
+                });
+                
+                // Wait for refresh to complete
+                while (true) {
+                    const statusResponse = await fetch('/api/queue/status');
+                    const statusData = await statusResponse.json();
+                    
+                    if (statusData.position === 0) {
+                        break;
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                // Load updated data
+                await loadContractors();
+                
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                alert('Error refreshing data. Please try again.');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Add click handler for refresh button
+        refreshButton.addEventListener('click', refreshData);
+
+        // Function to load contractors
+        async function loadContractors() {
+            try {
+                const response = await fetch('/api/contractors');
+                if (response.status === 429) {
+                    // If we need to wait, redirect to waiting page
+                    window.location.href = '/waiting';
+                    return;
+                }
+                contractors = await response.json();
+                displayContractors(contractors);
+            } catch (error) {
+                console.error('Error loading contractors:', error);
+            }
+        }
+
+        function displayContractors(contractors) {
+            const grid = document.getElementById('contractorsGrid');
+            grid.innerHTML = '';
+
+            contractors.forEach(contractor => {
+                const card = document.createElement('div');
+                card.className = 'contractor-card';
+                card.onclick = () => showContractorDetails(contractor);
+
+                const lastUpdated = contractor.last_updated ? 
+                    new Date(contractor.last_updated).toLocaleString() : 
+                    'Never updated';
+
+                card.innerHTML = `
+                    <div class="contractor-name">${contractor.name}</div>
+                    <div class="contractor-rating">⭐ ${contractor.rating}</div>
+                    <div class="contractor-location">📍 ${contractor.location}</div>
+                    <div class="contractor-phone">📞 ${contractor.phone}</div>
+                    <div class="last-updated">Updated: ${lastUpdated}</div>
+                `;
+
+                grid.appendChild(card);
+            });
+        }
+
+        function showContractorDetails(contractor) {
+            const modalContent = document.getElementById('modalContent');
+            const lastUpdated = contractor.last_updated ? 
+                new Date(contractor.last_updated).toLocaleString() : 
+                'Never updated';
+
+            modalContent.innerHTML = `
+                <div class="modal-section">
+                    <h3>${contractor.name}</h3>
+                    <p>⭐ ${contractor.rating}</p>
+                    <p>📍 ${contractor.location}</p>
+                    <p>📞 ${contractor.phone}</p>
+                    <p class="last-updated">Last updated: ${lastUpdated}</p>
+                </div>
+                ${contractor.founding_year ? `
+                <div class="modal-section">
+                    <h3>Years in Business</h3>
+                    <p>Since ${contractor.founding_year}</p>
+                </div>
+                ` : ''}
+                ${contractor.number_of_employees ? `
+                <div class="modal-section">
+                    <h3>Company Size</h3>
+                    <p>${contractor.number_of_employees} employees</p>
+                </div>
+                ` : ''}
+                ${contractor.state_license ? `
+                <div class="modal-section">
+                    <h3>State License</h3>
+                    <p>${contractor.state_license}</p>
+                </div>
+                ` : ''}
+                ${contractor.about ? `
+                <div class="modal-section">
+                    <h3>About</h3>
+                    <p>${contractor.about}</p>
+                </div>
+                ` : ''}
+                ${contractor.reviews && contractor.reviews.length > 0 ? `
+                <div class="modal-section">
+                    <h3>Customer Reviews</h3>
+                    ${contractor.reviews.map(review => `
+                        <div class="review">${review}</div>
+                    `).join('')}
+                </div>
+                ` : ''}
+                ${contractor.ai_insight ? `
+                <div class="modal-section">
+                    <h3>AI-Generated Insight</h3>
+                    <p>${contractor.ai_insight}</p>
+                </div>
+                ` : ''}
+            `;
+
+            modal.style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('contractorModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('contractorModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+
+        // Load contractors when page loads
+        loadContractors();
+    </script>
+</body>
+</html> 
